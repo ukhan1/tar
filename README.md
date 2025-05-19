@@ -1,4 +1,4 @@
 tar
 ===
 
-Little library to help read and write tar files
+Fork of https://github.com/fab-jul/tar to enable usage of the prefix field
