@@ -1,10 +1,12 @@
 #include "tar.hpp"
+#include <boost/filesystem.hpp>
 
 #include <cstring>  // for strlen and memset
 #include <cstdio>   // for sprintf, snprintf and sscanf
 #include <cstdlib>  // for rand
 #include <ctime>    // for time
 #include <cassert>
+#include <fstream>
 
 #define ENABLE_LOGGING
 
@@ -18,6 +20,7 @@ namespace tar
 {
         const char FILL_CHAR = '\0';
         const int FILE_NAME_LENGTH = 100;
+        const int PREFIX_LENGTH = 155;
 
         // From http://en.wikipedia.org/wiki/Tar_(computing)#UStar_format
         typedef enum tar_file_type
@@ -38,7 +41,7 @@ namespace tar
                 char mtime[12];               // Last modification time in
                                               // numeric Unix time format (octal)
                 char checksum[8];             // Checksum for header record
-                char typeflag[1];             // file type, see tar_file_type_t
+                char typeflag;             // file type, see tar_file_type_t
                 char linkname[100];           // Name of linked file
                 char magic[6];                // UStar indicator "ustar"
                 char version[2];              // UStar version "00"
@@ -46,7 +49,7 @@ namespace tar
                 char gname[32];               // Owner group name
                 char devmajor[8];             // Device major number
                 char devminor[8];             // Device minor number
-                char prefix[155];             // Filename prefix
+                char prefix[PREFIX_LENGTH];   // Filename prefix
                 char pad[12];                 // padding
         };
 
@@ -60,7 +63,7 @@ namespace tar
                 //TODO
                 std::sprintf(header->uname, "unkown");  // ... a bit random
                 std::sprintf(header->gname, "users");
-                header->typeflag[0] = 0;  // always just a normal file
+                header->typeflag = 0;  // always just a normal file
         }
 
         /* From Wikipedia: The checksum is calculated by taking the sum of the
@@ -94,12 +97,12 @@ namespace tar
 
         void header_set_filetype(tar_header* header, tar_file_type_t file_type)
         {
-                std::sprintf(header->typeflag, "%c", file_type);
+                header->typeflag = file_type;
         }
 
         tar_file_type_t header_get_filetype(tar_header* header)
         {
-                return tar_file_type_t(header->typeflag[0]);
+                return tar_file_type_t(header->typeflag);
         }
 
         void header_set_filesize(tar_header* header, file_size_t file_size)
@@ -116,18 +119,32 @@ namespace tar
 
         void header_set_filename(tar_header* header, const char* file_name)
         {
-                size_t len = std::strlen(file_name);
+            size_t len = std::strlen(file_name);
 
-                // len > 0 also ensures that the header does not start with \0
-                if (len == 0 || len >= FILE_NAME_LENGTH)
-                {
-                        LOG("Invalid file name for tar: %s\n", file_name);
-                        std::sprintf(header->name, "INVALID_%d", std::rand());
+            // len > 0 also ensures that the header does not start with \0
+            if (len == 0 || len >= FILE_NAME_LENGTH + PREFIX_LENGTH) {
+                    LOG("Invalid file name for tar: %s\n", file_name);
+                    std::sprintf(header->name, "INVALID_%d", std::rand());
+            }
+            else if(len < FILE_NAME_LENGTH) {
+                    std::sprintf(header->name, "%s", file_name);
+            } else {
+
+                auto p = boost::filesystem::path(file_name);
+
+                // Prefix has to be a directory
+                boost::filesystem::path prefix_path = p.parent_path();
+                while (prefix_path.size() > PREFIX_LENGTH) {
+                    prefix_path = p.parent_path();
                 }
-                else
-                {
-                        std::sprintf(header->name, "%s", file_name);
-                }
+                size_t prefix_size = prefix_path.string().length();
+
+                std::string prefix_name = p.string().substr(0, prefix_size);
+                std::string tail = p.string().substr(prefix_size+1);
+
+                std::sprintf(header->prefix, "%s", prefix_name.c_str());
+                std::sprintf(header->name, "%s", tail.c_str());
+            }
         }
 
         std::string header_get_filename(tar_header* header)
